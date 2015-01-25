@@ -1,0 +1,8 @@
+[project]
+name = "rustfuck"
+version = "0.0.1"
+authors = ["Zachary Bush <zach@zmbush.com>"]
+
+[[bin]]
+name = "rustfuck"
+path = "src/main.rs"
