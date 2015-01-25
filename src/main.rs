@@ -1,7 +1,49 @@
+extern crate getopts;
+
 use std::io::fs::File;
+use std::os;
+use getopts::{optopt,optflag, getopts,OptGroup,usage};
+use std::io::Command;
+
+fn print_usage(program: &str, opts: &[OptGroup]) {
+    let brief = format!("Usage: {} [options] INPUT_FILE", program);
+    print!("{}", usage(brief.as_slice(), opts));
+}
 
 fn main() {
-    let file = File::open(&Path::new("test.bf")).read_to_string().unwrap_or("".to_string());
+    let args = os::args();
+    let program = args[0].clone();
+    let opts = &[
+        optflag("h", "help", "print this help menu"),
+        optopt("o", "output", "set output filename", "OUTPUT"),
+    ];
+
+    macro_rules! u {
+        () => {
+            {
+                print_usage(program.as_slice(), opts);
+                return;
+            }
+        }
+    };
+
+    let matches = match getopts(args.tail(), opts) {
+        Ok(m) => m,
+        Err(f) => {
+            u!();
+        }
+    };
+
+    if matches.opt_present("h") { u!(); }
+    if matches.free.is_empty() { u!(); }
+
+    let path = Path::new(&matches.free[0]);
+    let outname = match matches.opt_str("o") {
+        Some(o) => o,
+        None => path.filestem_str().unwrap_or("a.out").to_string()
+    };
+    let file = File::open(&path).read_to_string().unwrap_or("".to_string());
+
     let indent_by = "    ";
     let mut indent = indent_by.to_string();
 
@@ -75,8 +117,15 @@ fn main() {
         commands = format!("{}{}{};\n", commands, indent, line);
     }
 
+    let mut child = match Command::new("rustc")
+                                  .arg("-o").arg(outname)
+                                  .arg("-").spawn() {
+        Ok(child) => child,
+        Err(e) => panic!("Failed to execute child: {:?}", e)
+    };
+
     macro_rules! src {
-        ($($arg:tt)*) => { println!($($arg)*) }
+        ($($arg:tt)*) => { write!(&mut child.stdin.as_mut().unwrap(), $($arg)*) }
     }
 
     src!("use std::io;");
@@ -85,4 +134,11 @@ fn main() {
     src!("{}let mut ptr = {};", indent_by, buffer_size / 2);
     src!("{}", commands);
     src!("}}");
+
+    match child.wait_with_output() {
+        Ok(out) => {
+            println!("{}", String::from_utf8_lossy(out.output.as_slice()));
+        },
+        Err(_) => {}
+    }
 }
