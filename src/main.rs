@@ -50,34 +50,8 @@ fn main() {
     let indent_by = "    ";
     let mut indent = indent_by.to_string();
 
-    let mut counts: Vec<(char, u32)> = Vec::new();
-
-    for ch in file.chars() {
-        match counts.pop() {
-            Some(c) => {
-                let (c, mut count) = c;
-                if c == ch {
-                    count += 1;
-
-                    counts.push((c, count));
-                    continue;
-                }
-                counts.push((c, count));
-            },
-            None => {}
-        }
-
-        match ch {
-            '>' | '<' | '+' | '-' | '.' | ',' | '[' | ']' => {
-                counts.push((ch, 1));
-            }
-            _ => {}
-        }
-    }
-
     let mut commands = String::new();
     let buffer_size = 50_000;
-
 
     for tok in tokenizer::BFToken::parse_file(&path).iter() {
         use tokenizer::BFToken::*;
