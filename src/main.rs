@@ -5,6 +5,8 @@ use std::os;
 use getopts::{optopt,optflag, getopts,OptGroup,usage};
 use std::io::Command;
 
+mod tokenizer;
+
 fn print_usage(program: &str, opts: &[OptGroup]) {
     let brief = format!("Usage: {} [options] INPUT_FILE", program);
     print!("{}", usage(brief.as_slice(), opts));
@@ -38,6 +40,7 @@ fn main() {
     if matches.free.is_empty() { u!(); }
 
     let path = Path::new(&matches.free[0]);
+
     let outname = match matches.opt_str("o") {
         Some(o) => o,
         None => path.filestem_str().unwrap_or("a.out").to_string()
@@ -75,46 +78,40 @@ fn main() {
     let mut commands = String::new();
     let buffer_size = 50_000;
 
-    for &(ch, count) in counts.iter() {
-        macro_rules! mkline {
-            ($str:expr) => {
-                format!(concat!($str, "/*{count}{buffer_size}*/"), count=count, buffer_size=buffer_size)
-            }
-        }
 
-        let line = match ch {
-            '>' => mkline!("ptr += {count}; if ptr >= {buffer_size} {{ ptr = 0; }}"),
-            '<' => mkline!("if ptr == 0 {{ ptr = {buffer_size} - 1; }} else {{ ptr -= {count} }}"),
-            '+' => mkline!("array[ptr] += {count};"),
-            '-' => mkline!("array[ptr] -= {count};"),
-            _ => {
-                for i in 0..count {
-                    let mut level = indent.clone();
-                    let cmd = match ch {
-                        '.' => "print!(\"{}\", array[ptr] as char);",
-                        ',' => "array[ptr] = io::stdin().read_char().unwrap_or('\0') as u8;",
-                        '[' => {
-                            indent.push_str(indent_by);
-                            "while array[ptr] > 0 {"
-                        },
-                        ']' => {
-                            for _ in indent_by.chars() {
-                                indent.pop();
-                            }
-                            level = indent.clone();
-                            "}"
-                        },
-                        _ => continue
-                    };
+    for tok in tokenizer::BFToken::parse_file(&path).iter() {
+        use tokenizer::BFToken::*;
 
-                    commands = format!("{}{}{}\n", commands, level, cmd);
+        let mut level = indent.clone();
+        let line = match *tok {
+            RShift(count) =>
+                format!("ptr += {c}; if ptr >= {bs} {{ ptr = 0; }}", c=count, bs=buffer_size),
+            LShift(count) =>
+                format!("if ptr == 0 {{ ptr = {bs} - 1; }} else {{ ptr -= {c} }}", c=count, bs=buffer_size),
+            Increment(count) =>
+                format!("array[ptr] += {count};", count=count),
+            Decrement(count) =>
+                format!("array[ptr] -= {count};", count=count),
+            Comment(ref val) =>
+                format!("// {}", val),
+            WriteChar =>
+                "print!(\"{}\", array[ptr] as char);".to_string(),
+            ReadChar =>
+                "array[ptr] = io::stdin().read_char().unwrap_or('\0') as u8;".to_string(),
+            StartLoop => {
+                indent.push_str(indent_by);
+                "while array[ptr] > 0 {".to_string()
+            },
+            EndLoop => {
+                for _ in indent_by.chars() {
+                    indent.pop();
                 }
-
-                continue;
+                level = indent.clone();
+                "}".to_string()
             }
         };
 
-        commands = format!("{}{}{};\n", commands, indent, line);
+        commands = format!("{}{}{};\n", commands, level, line);
     }
 
     let mut child = match Command::new("rustc")
