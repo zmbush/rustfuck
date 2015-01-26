@@ -1,6 +1,7 @@
 extern crate getopts;
 
 use std::io::fs::File;
+use std::io;
 use std::os;
 use getopts::{optopt,optflag, getopts,OptGroup,usage};
 use std::io::Command;
@@ -18,6 +19,7 @@ fn main() {
     let opts = &[
         optflag("h", "help", "print this help menu"),
         optopt("o", "output", "set output filename", "OUTPUT"),
+        optflag("r", "rust", "print out rust source"),
     ];
 
     macro_rules! u {
@@ -66,12 +68,21 @@ fn main() {
                 format!("array[ptr] += {count};", count=count),
             Decrement(count) =>
                 format!("array[ptr] -= {count};", count=count),
-            Comment(ref val) =>
-                format!("// {}", val),
+            Comment(ref val) => {
+                let val = val.clone();
+                let v = val.replace("\n", " ")
+                           .replace("\r", " ");
+                let v = v.trim_matches(|&: c: char| c == ' ');
+                if v.len() > 0 {
+                    format!("// {}", v)
+                } else {
+                    "".to_string()
+                }
+            },
             WriteChar =>
                 "print!(\"{}\", array[ptr] as char);".to_string(),
             ReadChar =>
-                "array[ptr] = io::stdin().read_char().unwrap_or('\0') as u8;".to_string(),
+                "array[ptr] = io::stdin().read_char().unwrap_or('\\0') as u8;".to_string(),
             StartLoop => {
                 indent.push_str(indent_by);
                 "while array[ptr] > 0 {".to_string()
@@ -85,31 +96,52 @@ fn main() {
             }
         };
 
-        commands = format!("{}{}{};\n", commands, level, line);
+        if line.len() > 0 {
+            commands = format!("{}{}{}\n", commands, level, line);
+        }
     }
 
-    let mut child = match Command::new("rustc")
-                                  .arg("-o").arg(outname)
-                                  .arg("-").spawn() {
-        Ok(child) => child,
-        Err(e) => panic!("Failed to execute child: {:?}", e)
+    let compile = !matches.opt_present("r");
+
+    let mut child = if compile {
+        Some(match Command::new("rustc")
+                      .arg("-o").arg(outname)
+                      .arg("-").spawn() {
+            Ok(child) => child,
+            Err(e) => panic!("Failed to execute child: {:?}", e)
+        })
+    } else {
+        None
     };
 
     macro_rules! src {
-        ($($arg:tt)*) => { write!(&mut child.stdin.as_mut().unwrap(), $($arg)*) }
+        ($($arg:tt)*) => {
+            if compile {
+                match child.as_mut() {
+                    Some(child) => {
+                        write!(child.stdin.as_mut().unwrap(), $($arg)*);
+                    },
+                    None => unreachable!()
+                }
+            } else {
+                write!(&mut io::stdout(), $($arg)*);
+            }
+        }
     }
 
-    src!("use std::io;");
-    src!("fn main() {{");
-    src!("{}let mut array = [0u8; {}];", indent_by, buffer_size);
-    src!("{}let mut ptr = {};", indent_by, buffer_size / 2);
+    src!("use std::io;\n");
+    src!("fn main() {{\n");
+    src!("{}let mut array = [0u8; {}];\n", indent_by, buffer_size);
+    src!("{}let mut ptr = {};\n", indent_by, buffer_size / 2);
     src!("{}", commands);
-    src!("}}");
+    src!("}}\n");
 
-    match child.wait_with_output() {
-        Ok(out) => {
-            println!("{}", String::from_utf8_lossy(out.output.as_slice()));
-        },
-        Err(_) => {}
+    if compile {
+        match child.unwrap().wait_with_output() {
+            Ok(out) => {
+                println!("{}", String::from_utf8_lossy(out.output.as_slice()));
+            },
+            Err(_) => {}
+        }
     }
 }
