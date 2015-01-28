@@ -1,4 +1,4 @@
-use std::io::fs::File;
+use std::old_io::fs::File;
 
 #[derive(Debug)]
 pub enum BFToken {

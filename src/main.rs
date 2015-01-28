@@ -1,10 +1,10 @@
 extern crate getopts;
 
-use std::io::fs::File;
-use std::io;
+use std::old_io::fs::File;
+use std::old_io;
 use std::os;
 use getopts::{optopt,optflag, getopts,OptGroup,usage};
-use std::io::Command;
+use std::old_io::Command;
 
 mod tokenizer;
 
@@ -124,12 +124,12 @@ fn main() {
                     None => unreachable!()
                 }
             } else {
-                write!(&mut io::stdout(), $($arg)*);
+                write!(&mut old_io::stdout(), $($arg)*);
             }
         }
     }
 
-    src!("use std::io;\n");
+    src!("use std::old_io;\n");
     src!("fn main() {{\n");
     src!("{}let mut array = [0u8; {}];\n", indent_by, buffer_size);
     src!("{}let mut ptr = {};\n", indent_by, buffer_size / 2);
